@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
+
+:root {
+  /* Color Palette */
+  --bg-base: #050505;
+  --bg-surface: #121212;
+  --bg-surface-hover: #1a1a1a;
+
+  --text-main: #e8e8e8;
+  --text-muted: #666666;
+
+  /* The "Hacker" Accents */
+  --accent-primary: #00ff66; /* Vibrant Neon Green */
+  --accent-error: #ff3366;   /* Neon Crimson */
+  --accent-glow: rgba(0, 255, 102, 0.15);
+
+  --border-subtle: #222222;
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Custom Scrollbar for the sleek look */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-surface-hover);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-subtle);
+}
