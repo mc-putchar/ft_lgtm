@@ -12,7 +12,8 @@ VM_DISK_SIZE_GB := 25
 
 SSH_KEY := ${HOME}/.ssh/mc-putchar.pub
 HOST_SSH_PORT := 2242
-PORT_FORWARDING := "hostfwd=tcp::$(HOST_SSH_PORT)-:22,hostfwd=tcp::8080-:8080"
+PORT_FORWARDING := "hostfwd=tcp::$(HOST_SSH_PORT)-:22,hostfwd=tcp::8080-:80,hostfwd=tcp::8443-:443,hostfwd=tcp::5001-:5001,hostfwd=tcp::5002-:5002"
+VM_UNDEFINE_OPTS := --snapshots-metadata --remove-all-storage
 
 MOUNT_DIR := ${HOME}/goinfre
 ISO_DIR := $(MOUNT_DIR)/iso
@@ -28,11 +29,14 @@ ISO_FILE := $(ISO_DIR)/ubuntu-22.04.5-live-server-amd64.iso
 ISO_URL := https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso
 CLOUDIMG_FILE := $(ISO_DIR)/jammy-server-cloudimg-amd64.img
 CLOUDIMG_URL := https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+VM_BOOT := hd,cdrom
 else ifeq ($(ARCH),arm64)
 ISO_FILE := $(ISO_DIR)/ubuntu-22.04.5-live-server-arm64.iso
 ISO_URL := https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-arm64.iso
 CLOUDIMG_FILE := $(ISO_DIR)/jammy-server-cloudimg-arm64.img
 CLOUDIMG_URL := https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-arm64.img
+VM_BOOT := uefi
+VM_UNDEFINE_OPTS += --nvram
 else
 $(error Unsupported architecture: $(ARCH))
 endif
@@ -55,7 +59,7 @@ help:	# Show this helpful message
 	/^[A-Za-z_0-9-]+:.*?#/ { printf "$(MAB)%-16s $(CYA)%s$(NC)\n", $$1, $$2}' \
 	Makefile
 
-.PHONY: start stop console ssh clean install
+.PHONY: start stop console ssh clean auto
 
 start:	# Start Host VM
 	virsh $(SESSION) start $(VM_NAME)
@@ -67,42 +71,72 @@ console:	# Connect to Host VM console
 	virsh $(SESSION) console $(VM_NAME)
 
 ssh:	# SSH into Host VM
-	ssh -p $(HOST_SSH_PORT) -i $(SSH_KEY) ubuntu@localhost
+	ssh -p $(HOST_SSH_PORT) lgtm@localhost
 
 clean:	# Remove Host VM and its storage
 	$(info Cleaning up...)
 	-rm -f $(USER_DATA)
 	-virsh $(SESSION) destroy $(VM_NAME)
-	-virsh $(SESSION) undefine $(VM_NAME) --snapshots-metadata --remove-all-storage
-	-ssh-keygen -f "/home/${USER}/.ssh/known_hosts" -R "[localhost]:$(HOST_SSH_PORT)"
+	-virsh $(SESSION) undefine $(VM_NAME) $(VM_UNDEFINE_OPTS)
+	-ssh-keygen -f "$$HOME/.ssh/known_hosts" -R "[localhost]:$(HOST_SSH_PORT)" || true
+
+auto:	# Automated install and deploy
+	@$(MAKE) build-imgs
+	@$(MAKE) install
+	@$(MAKE) deploy
+	@$(MAKE) reload-imgs
+
+.PHONY: install deploy undeploy build-imgs reload-imgs isofs
 
 install: isofs $(VM_CLOUDIMG)	# Install VM from CloudImg
 	virt-install $(SESSION) --name $(VM_NAME) \
 		--memory $(VM_RAM_MB) \
 		--vcpus $(VM_VCPUS) \
 		--disk path=$(VM_CLOUDIMG),format=qcow2,bus=virtio \
-		--disk path=host/seed.iso,device=cdrom,bus=sata \
+		--disk path=host/seed.iso,device=disk,bus=virtio,readonly=on \
+		--check disk_size=off \
 		--filesystem $$(pwd),iot,type=mount,mode=squash \
-		--boot hd,cdrom \
+		--boot $(VM_BOOT) \
 		--os-variant $(OS_VARIANT) \
 		--network none \
 		--graphics none \
+		--console pty,target_type=serial \
 		--qemu-commandline="-netdev" \
 		--qemu-commandline="user,id=net0,$(PORT_FORWARDING)" \
 		--qemu-commandline="-device" \
 		--qemu-commandline="virtio-net-device,netdev=net0" \
-		--console pty,target_type=serial \
 		--import \
 		--noautoconsole
 
+deploy:	# Deploy the Kubernetes cluster
+	@echo "Waiting for VM to boot and SSH to become available..."
+	@while ! nc -z localhost $(HOST_SSH_PORT); do sleep 5; done
+	@echo "SSH is up. Pushing deployment script to VM..."
+	ssh -p $(HOST_SSH_PORT) lgtm@localhost 'bash -s' < tools/deploy-cluster.sh
+
+undeploy:	# Delete the Kubernetes cluster
+	ssh -p $(HOST_SSH_PORT) lgtm@localhost 'bash -c "k3d cluster delete lgtm-cluster"'
+
+reload-imgs: build-imgs	# Reload docker images in the cluster
+	docker push localhost:5001/ft-lgtm/backend:latest
+	docker push localhost:5001/ft-lgtm/frontend:latest
+	ssh -p 2242 lgtm@localhost \
+		'kubectl rollout restart deployment/backend deployment/frontend -n app'
+
+build-imgs:
+	docker build -t localhost:5001/ft-lgtm/backend:latest ./app/backend
+	docker build -t localhost:5001/ft-lgtm/frontend:latest ./app/frontend
+	# docker tag ft-backend:latest lgtm-registry:5001/ft-lgtm/backend:latest
+	# docker tag ft-frontend:latest lgtm-registry:5001/ft-lgtm/frontend:latest
+
 isofs:
 	sed "s|<SSH_KEY>|$$(cat $(SSH_KEY))|g" host/user-data.yaml > "$(USER_DATA)"
-	sed -i '' "s|<PASSWD_HASH>|$$(openssl passwd -6)|g" "$(USER_DATA)"
+	sed -i '' "s|<PASSWD_HASH>|$$(echo 'lgtm' | openssl passwd -6 -stdin)|g" "$(USER_DATA)"
 	docker run --rm -v $(PWD)/host:/data alpine sh -c \
 			"apk add --no-cache cdrkit && mkisofs -output /data/seed.iso -volid cidata -joliet -rock /data/user-data /data/meta-data"
 
 $(VM_CLOUDIMG): $(CLOUDIMG_FILE) | $(VM_IMGDIR)
-	qemu-img create -f qcow2 -b $(CLOUDIMG_FILE) -F qcow2 $(VM_CLOUDIMG) $(VM_DISK_SIZE_GB)
+	qemu-img create -f qcow2 -b $(CLOUDIMG_FILE) -F qcow2 $(VM_CLOUDIMG) $(VM_DISK_SIZE_GB)G
 
 $(CLOUDIMG_FILE): | $(ISO_DIR)
 	@echo "Downloading cloud image..."

@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ipfs-pvc
+  namespace: app
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ipfs
+  namespace: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ipfs
+  template:
+    metadata:
+      labels:
+        app: ipfs
+    spec:
+      containers:
+        - name: ipfs
+          image: ipfs/kubo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4001
+              name: swarms
+            - containerPort: 5001
+              name: api
+            - containerPort: 8080
+              name: gateway
+          volumeMounts:
+            - name: ipfs-storage
+              mountPath: /data/ipfs
+      volumes:
+        - name: ipfs-storage
+          persistentVolumeClaim:
+            claimName: ipfs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ipfs-service
+  namespace: app
+spec:
+  selector:
+    app: ipfs
+  ports:
+    - name: api
+      port: 5001
+      targetPort: 5001
+    - name: gateway
+      port: 8080
+      targetPort: 8080

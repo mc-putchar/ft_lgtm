@@ -1,11 +1,16 @@
+use crate::models::RunResult;
+
 use std::path::Path;
+use std::sync::LazyLock;
 use wasmtime::component::{Component, Linker, ResourceTable};
-use wasmtime::*;
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
+use wasmtime_wasi::p2::bindings::Command;
+use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 struct WasiState {
     ctx: WasiCtx,
     table: ResourceTable,
+    limits: StoreLimits,
 }
 
 impl WasiView for WasiState {
@@ -17,21 +22,19 @@ impl WasiView for WasiState {
     }
 }
 
-pub struct RunResult {
-    pub stdout: String,
-    pub stderr: String,
-    pub error_message: Option<String>,
-    pub execution_time_ms: u64,
-}
-
-pub async fn run_wasm(wasm_path: &Path) -> Result<RunResult, String> {
+pub static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
     let mut config = Config::new();
     config.consume_fuel(true);
-    // Limit memory to 50MB
-    // config.static_memory_maximum_size(50 * 1024 * 1024);
 
-    let engine = Engine::new(&config).expect("Failed to create Wasmtime engine");
-    let mut linker = Linker::new(&engine);
+    if let Ok(cache) = Cache::new(CacheConfig::new()) {
+        config.cache(Some(cache));
+    }
+
+    Engine::new(&config).expect("Failed to create Wasmtime engine")
+});
+
+pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, String> {
+    let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker).expect("Failed to add WASI to linker");
 
     let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(10 * 1024);
@@ -40,33 +43,58 @@ pub async fn run_wasm(wasm_path: &Path) -> Result<RunResult, String> {
     let mut builder = WasiCtxBuilder::new();
     builder.stdout(stdout.clone()).stderr(stderr.clone());
 
+    let limits = StoreLimitsBuilder::new()
+        .memory_size(10 * 1024 * 1024)
+        .build();
+
     let mut store = Store::new(
         &engine,
         WasiState {
             ctx: builder.build(),
             table: ResourceTable::new(),
+            limits,
         },
     );
 
-    store.set_fuel(100_000_000).expect("Failed to set fuel");
+    store.limiter(|state| &mut state.limits);
+    store
+        .set_fuel(500_000_000_000_000)
+        .expect("Failed to set fuel");
 
-    // let module = Module::from_file(&engine, wasm_path).expect("Failed to create module");
-    let component = Component::from_file(&engine, wasm_path).expect("Failed to create component");
-
-    let instance = linker
-        .instantiate_async(&mut store, &component)
-        .await
-        .expect("Failed to instantiate module");
+    let engine_clone = engine.clone();
+    let wasm_path_clone = wasm_path.to_path_buf();
+    let component =
+        tokio::task::spawn_blocking(move || Component::from_file(&engine_clone, &wasm_path_clone))
+            .await
+            .expect("Failed to spawn blocking task")
+            .expect("Failed to load component");
 
     let start = std::time::Instant::now();
-    let run_func = instance
-        .get_typed_func::<(), ()>(&mut store, "_start")
-        .expect("No _start function found");
-    let run_res = run_func.call_async(&mut store, ()).await;
+
+    let command = Command::instantiate_async(&mut store, &component, &linker)
+        .await
+        .expect("Failed to instantiate command");
+
+    let run_res = command.wasi_cli_run().call_run(&mut store).await;
+
     let execution_time_ms = start.elapsed().as_millis() as u64;
+
     let error_message = match run_res {
-        Ok(_) => None,
-        Err(e) => Some(e.to_string()),
+        Ok(Ok(())) => None,
+        Ok(Err(())) => Some("Program exited with non-zero status code".to_string()),
+        Err(e) => {
+            if let Some(exit) = e.downcast_ref::<I32Exit>() {
+                if exit.0 == 0 {
+                    None
+                } else {
+                    Some("Program exited with non-zero status code".to_string())
+                }
+            } else if let Some(Trap::OutOfFuel) = e.downcast_ref::<Trap>() {
+                Some("Execution limit exceeded: out of fuel".to_string())
+            } else {
+                Some(format!("{e:#}"))
+            }
+        }
     };
 
     Ok(RunResult {

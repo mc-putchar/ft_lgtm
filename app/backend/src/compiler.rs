@@ -1,7 +1,11 @@
+pub mod rust;
+
+use rust::RustCompiler;
+
 use std::path::PathBuf;
-use std::process::Command;
 use tempfile::TempDir;
 
+#[derive(Debug)]
 pub struct CompileResult {
     pub success: bool,
     pub wasm_path: PathBuf,
@@ -10,59 +14,90 @@ pub struct CompileResult {
     pub _workspace: TempDir,
 }
 
-/// Compiles Rust source code to WebAssembly using `rustc` in a sandboxed environment.
-pub async fn compile_rust_to_wasm(source_code: &str) -> Result<CompileResult, String> {
-    let workspace = TempDir::new().expect("Failed to create temp dir");
-    let src_path = workspace.path().join("main.rs");
-    let wasm_path = workspace.path().join("out.wasm");
+pub trait Compiler {
+    fn compile(
+        source: &str,
+    ) -> impl std::future::Future<Output = Result<CompileResult, String>> + Send;
+}
 
-    std::fs::write(&src_path, source_code).expect("Failed to write source code");
-
-    if !Command::new("which")
-        .arg("bwrap")
-        .output()
-        .expect("Failed to check for bwrap")
-        .status
-        .success()
-    {
-        return Err("bwrap is not installed. Please install bubblewrap.".to_string());
+pub async fn get_compiled_code(lang: &str, source: &str) -> Result<CompileResult, String> {
+    match lang {
+        "rust" => RustCompiler::compile(source).await,
+        _ => Err(format!("Unsupported language: {}", lang)),
     }
+}
 
-    let output = Command::new("bwrap")
-        .args([
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--ro-bind",
-            "/lib",
-            "/lib",
-            "--ro-bind",
-            "/lib64",
-            "/lib64",
-            "--ro-bind",
-            "/etc-alternatives",
-            "/etc-alternatives",
-            "--bind",
-            workspace.path().to_str().unwrap(),
-            workspace.path().to_str().unwrap(),
-            "--unshare-all",
-            "--new-session",
-            "rustc",
-            "--target",
-            "wasm32-wasi",
-            src_path.to_str().unwrap(),
-            "-o",
-            wasm_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute rustc");
+#[tokio::test]
+async fn test_compiler_success_valid_rust() {
+    let code = r#"
+        fn main() {
+            println!("Hello from Wasm test!");
+        }
+    "#;
 
-    let logs = String::from_utf8_lossy(&output.stderr).to_string();
+    let result = RustCompiler::compile(code).await;
+    assert!(result.is_ok(), "Compiler returned an unexpected Err");
 
-    Ok(CompileResult {
-        success: output.status.success(),
-        wasm_path,
-        logs,
-        _workspace: workspace,
-    })
+    let compile_res = result.unwrap();
+    assert!(
+        compile_res.success,
+        "Compilation failed: {}",
+        compile_res.logs
+    );
+    assert!(
+        compile_res.wasm_path.exists(),
+        "WASM binary was not generated"
+    );
+}
+
+#[tokio::test]
+async fn test_compiler_syntax_error() {
+    let invalid_code = r#"
+        fn main() {
+            let x = ; // Invalid syntax
+        }
+    "#;
+
+    let result = RustCompiler::compile(invalid_code).await;
+    assert!(result.is_ok(), "Compiler task failed unexpectedly");
+
+    let compile_res = result.unwrap();
+    assert!(!compile_res.success, "Compilation should have failed");
+    assert!(
+        compile_res.logs.contains("error") || compile_res.logs.contains("expected"),
+        "Compilation log should contain compiler error details"
+    );
+}
+
+#[tokio::test]
+async fn test_compiler_enforces_timeout() {
+    let macro_bomb_code = r#"
+        #![allow(long_running_const_eval)]
+        const _: () = loop {};
+        fn main() {}
+    "#;
+
+    let start = std::time::Instant::now();
+    let result = RustCompiler::compile(macro_bomb_code).await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok());
+    let compile_res = result.unwrap();
+
+    assert!(
+        !compile_res.success,
+        "Compilation should fail due to timeout"
+    );
+    assert!(
+        elapsed.as_secs() >= 5 && elapsed.as_secs() <= 8,
+        "Compiler should terminate around the 5s timeout mark (took {}s)",
+        elapsed.as_secs()
+    );
+}
+
+#[tokio::test]
+async fn test_get_compiled_code_unsupported_language() {
+    let result = get_compiled_code("python", "print('hello')").await;
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err(), "Unsupported language: python");
 }

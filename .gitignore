@@ -1,3 +1,4 @@
 *.subject.pdf
 *.iso
 *.qcow2
+ipfs-data/

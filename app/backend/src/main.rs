@@ -1,132 +1,85 @@
-mod compiler;
-mod models;
-mod runner;
-
-use compiler::{CompileResult, compile_rust_to_wasm};
-use models::{ApiResponse, ExecuteRequest, ExecuteResponse};
-use runner::{RunResult, run_wasm};
+use backend::executor::exec_code;
+use backend::ipfs::fetch_from_ipfs;
+use backend::models::{ExecuteResponse, ExecutionStatus};
 
 use axum::routing::{get, post};
 use axum::{Json, Router, extract::Path};
-use std::env::var;
+use metrics::counter;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .with(tracing_subscriber::fmt::layer().json())
+        .init();
+
+    let prometheus_handle = PrometheusBuilder::new()
+        .install_recorder()
+        .expect("Failed to install Prometheus recorder");
+
     let app = Router::new()
+        .route("/api/v1/health", get(|| async { "OK" }))
         .route("/api/v1/code/{cid}", get(poll_status))
         .route("/api/v1/execute", post(exec_code))
+        .route(
+            "/api/v1/metrics",
+            get(move || std::future::ready(prometheus_handle.render())),
+        )
+        .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
-    let host = var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
         .await
-        .unwrap();
-    println!("Server running on http://{}:{}", host, port);
+        .expect("Failed to bind to address");
 
-    axum::serve(listener, app).await.unwrap();
+    info!(host = %host, port = %port, "Server listening");
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to install Ctrl+C handler");
 }
 
 /// Fetch status of a code execution from the queue.
 async fn poll_status(Path(cid): Path<String>) -> Json<ExecuteResponse> {
-    println!("Polling status for CID: {}", cid);
-    Json(ExecuteResponse {
-        status: models::ExecutionStatus::Success,
-        stdout: "Hello, World!".into(),
-        stderr: "".into(),
-        compilation_log: "".into(),
-        execution_time_ms: 42,
-        ipfs_cid: Some(cid.into()),
-    })
-}
+    counter!("http_requests_total", "endpoint" => "poll_status").increment(1);
+    info!(cid = %cid, "Polling status for request");
 
-/// Compiles code, runs it in Wasmtime, uploads results to IPFS, and returns the output.
-async fn exec_code(Json(payload): Json<ExecuteRequest>) -> Json<ExecuteResponse> {
-    println!(
-        "Received code execution request for language: {}",
-        payload.language
-    );
-
-    if payload.language != "rust" {
-        return Json(ExecuteResponse {
-            status: models::ExecutionStatus::CompilationError,
-            stdout: "".into(),
-            stderr: "Unsupported language".into(),
+    match fetch_from_ipfs(&cid).await {
+        Ok(res) => axum::Json(ExecuteResponse {
+            status: ExecutionStatus::Success,
+            stdout: res.stdout,
+            stderr: res.stderr,
             compilation_log: "".into(),
-            execution_time_ms: 0,
-            ipfs_cid: None,
-        });
-    }
-
-    println!("Compiling Rust code to WebAssembly...");
-
-    let wasm_out: CompileResult = match compile_rust_to_wasm(&payload.code).await {
-        Ok(wasm) => wasm,
+            execution_time_ms: res.execution_time_ms,
+            ipfs_cid: Some(cid),
+        }),
         Err(e) => {
-            return Json(ExecuteResponse {
-                status: models::ExecutionStatus::CompilationError,
+            error!(error = %e, "Failed to retrieve CID from IPFS");
+            axum::Json(ExecuteResponse {
+                status: ExecutionStatus::RuntimeError,
                 stdout: "".into(),
-                stderr: e,
+                stderr: format!("Failed to retrieve CID from IPFS: {}", e),
                 compilation_log: "".into(),
-                execution_time_ms: 0,
-                ipfs_cid: None,
-            });
+                execution_time_ms: 42,
+                ipfs_cid: Some(cid),
+            })
         }
-    };
-
-    println!("Compilation finished. Success: {}", wasm_out.success);
-
-    if wasm_out.success == false {
-        return Json(ExecuteResponse {
-            status: models::ExecutionStatus::CompilationError,
-            stdout: "".into(),
-            stderr: "Compilation failed".into(),
-            compilation_log: wasm_out.logs,
-            execution_time_ms: 0,
-            ipfs_cid: None,
-        });
     }
-
-    println!("Running WebAssembly module...");
-
-    let run_result = match run_wasm(&wasm_out.wasm_path).await {
-        Ok(res) => res,
-        Err(e) => {
-            return Json(ExecuteResponse {
-                status: models::ExecutionStatus::RuntimeError,
-                stdout: "".into(),
-                stderr: e,
-                compilation_log: "".into(),
-                execution_time_ms: 0,
-                ipfs_cid: None,
-            });
-        }
-    };
-
-    println!(
-        "Execution finished. Time taken: {} ms",
-        run_result.execution_time_ms
-    );
-
-    if let Some(error_message) = run_result.error_message {
-        return Json(ExecuteResponse {
-            status: models::ExecutionStatus::RuntimeError,
-            stdout: run_result.stdout,
-            stderr: error_message,
-            compilation_log: "".into(),
-            execution_time_ms: run_result.execution_time_ms,
-            ipfs_cid: None,
-        });
-    }
-
-    Json(ExecuteResponse {
-        status: models::ExecutionStatus::Success,
-        stdout: run_result.stdout,
-        stderr: run_result.stderr,
-        compilation_log: "".into(),
-        execution_time_ms: run_result.execution_time_ms,
-        ipfs_cid: Some("QmExampleCID".into()), // Placeholder for actual IPFS CID
-    })
 }

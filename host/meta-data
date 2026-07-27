@@ -1,2 +1,2 @@
-instance-id: lgtm-host-42
-local-hostname: lgtm-host
+instance-id: lgtm-node-42
+local-hostname: lgtm

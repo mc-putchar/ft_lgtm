@@ -2,13 +2,6 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../frontend/src/lib/types/ApiResponse.ts")]
-pub struct ApiResponse {
-    pub status_code: u16,
-    pub message: String,
-}
-
-#[derive(Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../frontend/src/lib/types/ExecuteRequest.ts")]
 pub struct ExecuteRequest {
     pub language: String,
@@ -32,4 +25,13 @@ pub struct ExecuteResponse {
     pub compilation_log: String,
     pub execution_time_ms: u64,
     pub ipfs_cid: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../frontend/src/lib/types/RunResult.ts")]
+pub struct RunResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub error_message: Option<String>,
+    pub execution_time_ms: u64,
 }
