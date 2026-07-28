@@ -7,6 +7,8 @@ use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimi
 use wasmtime_wasi::p2::bindings::Command;
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
+pub const DEFAULT_FUEL: u64 = 500_000_000_000_000;
+
 struct WasiState {
     ctx: WasiCtx,
     table: ResourceTable,
@@ -57,17 +59,18 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
     );
 
     store.limiter(|state| &mut state.limits);
-    store
-        .set_fuel(500_000_000_000_000)
-        .expect("Failed to set fuel");
+    store.set_fuel(DEFAULT_FUEL).expect("Failed to set fuel");
 
     let engine_clone = engine.clone();
     let wasm_path_clone = wasm_path.to_path_buf();
-    let component =
-        tokio::task::spawn_blocking(move || Component::from_file(&engine_clone, &wasm_path_clone))
-            .await
-            .expect("Failed to spawn blocking task")
-            .expect("Failed to load component");
+    let current_span = tracing::Span::current();
+    let component = tokio::task::spawn_blocking(move || {
+        let _entered = current_span.entered();
+        Component::from_file(&engine_clone, &wasm_path_clone)
+    })
+    .await
+    .expect("Failed to spawn blocking task")
+    .expect("Failed to load component");
 
     let start = std::time::Instant::now();
 
@@ -78,6 +81,8 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
     let run_res = command.wasi_cli_run().call_run(&mut store).await;
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
+    let fuel_remaining = store.get_fuel().expect("Failed to get fuel");
+    let fuel_consumed = DEFAULT_FUEL - fuel_remaining;
 
     let error_message = match run_res {
         Ok(Ok(())) => None,
@@ -102,5 +107,6 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
         stderr: String::from_utf8_lossy(&stderr.contents()).into_owned(),
         error_message,
         execution_time_ms,
+        fuel_consumed,
     })
 }

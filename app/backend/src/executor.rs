@@ -4,102 +4,155 @@ use crate::models::{ExecuteRequest, ExecuteResponse, ExecutionStatus};
 use crate::runner::{ENGINE, run_wasm};
 
 use axum::Json;
-use metrics::{counter, histogram};
-use tracing::{error, info, warn};
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::{KeyValue, global};
+use std::sync::LazyLock;
+use tracing::{Instrument, error, info, info_span, warn};
+
+// Cached metrics instruments to reuse in requests
+struct AppMetrics {
+    http_requests: Counter<u64>,
+    executions: Counter<u64>,
+    comp_errors: Counter<u64>,
+    comp_failures: Counter<u64>,
+    exec_errors: Counter<u64>,
+    exec_failures: Counter<u64>,
+    exec_successes: Counter<u64>,
+    exec_time: Histogram<f64>,
+}
+
+static METRICS: LazyLock<AppMetrics> = LazyLock::new(|| {
+    let meter = global::meter("backend");
+    AppMetrics {
+        http_requests: meter.u64_counter("http_requests_total").build(),
+        executions: meter.u64_counter("code_executions_total").build(),
+        comp_errors: meter.u64_counter("compilation_errors_total").build(),
+        comp_failures: meter.u64_counter("compilation_failures_total").build(),
+        exec_errors: meter.u64_counter("execution_errors_total").build(),
+        exec_failures: meter.u64_counter("wasm_execution_failures_total").build(),
+        exec_successes: meter.u64_counter("execution_successes_total").build(),
+        exec_time: meter.f64_histogram("execution_time_s").build(),
+    }
+});
 
 /// Compiles code, runs it in Wasmtime, uploads results to IPFS, and returns the output.
 pub async fn exec_code(Json(payload): Json<ExecuteRequest>) -> Json<ExecuteResponse> {
+    METRICS
+        .http_requests
+        .add(1, &[KeyValue::new("endpoint", "exec_code")]);
+    let lang_attr = KeyValue::new("language", payload.language.clone());
+    METRICS.executions.add(1, &[lang_attr.clone()]);
     info!(language = %payload.language, "Received code execution request");
-    counter!("http_requests_total", "endpoint" => "exec_code").increment(1);
-    counter!("code_executions_total", "language" => payload.language.clone()).increment(1);
 
-    let wasm_out: CompileResult = match get_compiled_code(&payload.language, &payload.code).await {
-        Ok(wasm) => wasm,
-        Err(e) => {
-            error!(error = %e, "Compilation handler failure");
-            counter!("compilation_failures_total", "language" => payload.language.clone())
-                .increment(1);
-            return Json(ExecuteResponse {
-                status: ExecutionStatus::CompilationError,
-                stdout: "".into(),
-                stderr: "".into(),
-                compilation_log: e,
-                execution_time_ms: 0,
-                ipfs_cid: None,
-            });
-        }
-    };
+    let code_snippet: String = payload.code.chars().take(42).collect();
+    let root_span = info_span!(
+        "http_request_exec",
+        language = %payload.language,
+        snippet = %code_snippet,
+        ipfs_cid = tracing::field::Empty
+    );
 
-    if !wasm_out.success {
-        warn!(logs = %wasm_out.logs, "Compilation error");
-        counter!("compilation_errors_total", "language" => payload.language.clone()).increment(1);
-        return Json(ExecuteResponse {
-            status: ExecutionStatus::CompilationError,
-            stdout: "".into(),
-            stderr: "Compilation failed".into(),
-            compilation_log: wasm_out.logs,
-            execution_time_ms: 0,
-            ipfs_cid: None,
-        });
-    }
+    async move {
+        let wasm_out: CompileResult = match async {
+            get_compiled_code(&payload.language, &payload.code).await
+        }.instrument(info_span!("compilation_time")).await {
+            Ok(wasm_out) => {
+                if !wasm_out.success {
+                    tracing::error!("Compilation error");
+                    tracing::Span::current().record("otel.status_code", "ERROR");
+                    warn!(logs = %wasm_out.logs, "Compilation error");
+                    METRICS.comp_errors.add(1, &[lang_attr]);
+                    return Json(ExecuteResponse {
+                        status: ExecutionStatus::CompilationError,
+                        stdout: "".into(),
+                        stderr: "Compilation error".into(),
+                        compilation_log: wasm_out.logs,
+                        execution_time_ms: 0,
+                        ipfs_cid: None,
+                    });
+                }
+                wasm_out
+            },
+            Err(e) => {
+                tracing::error!("Compilation failed: {}", e);
+                tracing::Span::current().record("otel.status_code", "ERROR");
+                error!(error = %e, "Compilation handler failure");
+                METRICS.comp_failures.add(1, &[lang_attr]);
+                return Json(ExecuteResponse {
+                    status: ExecutionStatus::CompilationError,
+                    stdout: "".into(),
+                    stderr: "Compilation failed".into(),
+                    compilation_log: e,
+                    execution_time_ms: 0,
+                    ipfs_cid: None,
+                });
+            }
+        };
 
-    info!("Compilation successful, executing WASM module");
+        info!("Compilation successful, executing WASM module");
 
-    let run_result = match run_wasm(&ENGINE, &wasm_out.wasm_path).await {
-        Ok(res) => res,
-        Err(e) => {
-            error!(error = %e, "WASM execution task failure");
-            counter!("wasm_execution_failures_total").increment(1);
-            return Json(ExecuteResponse {
-                status: ExecutionStatus::RuntimeError,
-                stdout: "".into(),
-                stderr: e,
-                compilation_log: wasm_out.logs,
-                execution_time_ms: 0,
-                ipfs_cid: None,
-            });
-        }
-    };
+        let run_result = match async {
+            run_wasm(&ENGINE, &wasm_out.wasm_path).await
+        }.instrument(info_span!("execution_time")).await {
+            Ok(res) => {
+                if let Some(err_msg) = res.error_message {
+                    warn!(error = %err_msg, duration_ms = res.execution_time_ms, "WASM execution runtime error");
+                    METRICS.exec_errors.add(1, &[]);
 
-    histogram!("execution_time_ms").record(run_result.execution_time_ms as f64);
+                    return Json(ExecuteResponse {
+                        status: ExecutionStatus::RuntimeError,
+                        stdout: res.stdout,
+                        stderr: res.stderr + err_msg.as_str(),
+                        compilation_log: wasm_out.logs,
+                        execution_time_ms: res.execution_time_ms,
+                        ipfs_cid: None,
+                    });
+                }
+                res
+            },
+            Err(e) => {
+                error!(error = %e, "WASM execution task failure");
+                METRICS.exec_failures.add(1, &[]);
+                return Json(ExecuteResponse {
+                    status: ExecutionStatus::RuntimeError,
+                    stdout: "".into(),
+                    stderr: e,
+                    compilation_log: wasm_out.logs,
+                    execution_time_ms: 0,
+                    ipfs_cid: None,
+                });
+            }
+        };
 
-    if let Some(error_message) = run_result.error_message {
-        warn!(error = %error_message, duration_ms = run_result.execution_time_ms, "WASM execution runtime error");
-        counter!("execution_errors_total").increment(1);
+        METRICS.exec_time.record(run_result.execution_time_ms as f64 / 1000.0, &[]);
+        info!(
+            duration_ms = run_result.execution_time_ms,
+            "WASM execution success"
+        );
+        METRICS.exec_successes.add(1, &[]);
 
-        return Json(ExecuteResponse {
-            status: ExecutionStatus::RuntimeError,
+        let ipfs_cid = async {
+            match publish_to_ipfs(&payload.code, &run_result).await {
+                Ok(cid) => {
+                    info!(cid = %cid, "Successfully published to IPFS");
+                    tracing::Span::current().record("ipfs_cid", &cid);
+                    Some(cid)
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to publish to IPFS");
+                    None
+                }
+            }
+        }.instrument(info_span!("ipfs_upload_time")).await;
+
+
+        Json(ExecuteResponse {
+            status: ExecutionStatus::Success,
             stdout: run_result.stdout,
-            stderr: run_result.stderr + error_message.as_str(),
+            stderr: run_result.stderr,
             compilation_log: wasm_out.logs,
             execution_time_ms: run_result.execution_time_ms,
-            ipfs_cid: None,
-        });
-    }
-
-    info!(
-        duration_ms = run_result.execution_time_ms,
-        "WASM execution success"
-    );
-    counter!("execution_successes_total").increment(1);
-
-    let ipfs_cid = match publish_to_ipfs(&payload.code, &run_result).await {
-        Ok(cid) => {
-            info!(cid = %cid, "Successfully published to IPFS");
-            Some(cid)
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to publish to IPFS");
-            None
-        }
-    };
-
-    Json(ExecuteResponse {
-        status: ExecutionStatus::Success,
-        stdout: run_result.stdout,
-        stderr: run_result.stderr,
-        compilation_log: wasm_out.logs,
-        execution_time_ms: run_result.execution_time_ms,
-        ipfs_cid,
-    })
+            ipfs_cid,
+        })
+    }.instrument(root_span).await
 }

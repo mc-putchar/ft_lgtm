@@ -11,18 +11,6 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 COPY . .
 RUN pnpm build
-# RUN pnpm --filter=frontend deploy out --prod --legacy
-
-# FROM node:24-alpine AS runner
-# RUN addgroup -S app && adduser -S app -G app
-# WORKDIR /app
-# COPY --from=builder --chown=app:app /app/out ./
-# ENV NODE_ENV=production \
-#     NODE_OPTIONS="--enable-source-maps"
-
-# EXPOSE 4173
-# USER app
-# CMD ["npm", "run", "preview"]
 
 FROM caddy:2-alpine AS runner
 

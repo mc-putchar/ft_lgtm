@@ -1,39 +1,12 @@
-// --- METRICS COLLECTION ---
-
-discovery.kubernetes "app_pods" {
-  role = "pod"
-  namespaces {
-    names = ["app"]
+// --- OTLP RECEIVER ---
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
   }
 }
 
-discovery.relabel "backend_metrics" {
-  targets = discovery.kubernetes.app_pods.targets
-
-  rule {
-    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
-    regex         = "true"
-    action        = "keep"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
-    target_label  = "__metrics_path__"
-    regex         = "(.+)"
-  }
-  rule {
-    source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
-    target_label  = "__address__"
-    regex         = "([^:]+)(?::\\d+)?;(\\d+)"
-    replacement   = "$1:$2"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_label_app"]
-    target_label  = "app"
-  }
-}
-
-prometheus.scrape "backend" {
-  targets    = discovery.relabel.backend_metrics.output
+// --- METRICS ---
+otelcol.exporter.prometheus "default" {
   forward_to = [prometheus.remote_write.prometheus.receiver]
 }
 
@@ -43,7 +16,28 @@ prometheus.remote_write "prometheus" {
   }
 }
 
-// --- LOGS COLLECTION ---
+// --- TRACES ---
+otelcol.processor.batch "default" {
+  send_batch_size = 1000
+  timeout         = "1s"
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "http://tempo.lgtm.svc.cluster.local:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// --- LOGS ---
+discovery.kubernetes "app_pods" {
+  role = "pod"
+  namespaces {
+    names = ["app"]
+  }
+}
 
 loki.source.kubernetes "pod_logs" {
   targets    = discovery.kubernetes.app_pods.targets
@@ -58,13 +52,11 @@ loki.process "json_logs" {
       msg   = "message",
     }
   }
-
   stage.labels {
     values = {
       level = "",
     }
   }
-
   forward_to = [loki.write.loki.receiver]
 }
 
@@ -72,4 +64,14 @@ loki.write "loki" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
   }
+}
+
+// --- PIPELINE ---
+otelcol.receiver.otlp.default.output {
+  metrics = [otelcol.exporter.prometheus.default.input]
+  traces  = [otelcol.processor.batch.default.input]
+}
+
+otelcol.processor.batch.default.output {
+  traces = [otelcol.exporter.otlp.tempo.input]
 }

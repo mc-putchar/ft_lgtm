@@ -4,8 +4,9 @@ use backend::models::{ExecuteResponse, ExecutionStatus};
 
 use axum::routing::{get, post};
 use axum::{Json, Router, extract::Path};
-use metrics::counter;
-use metrics_exporter_prometheus::PrometheusBuilder;
+use opentelemetry::global;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
@@ -13,25 +14,23 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
+    init_opentelemetry().expect("Failed to initialize OpenTelemetry");
+
+    let tracer = global::tracer("lgtm_tracer");
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .with(tracing_subscriber::fmt::layer().json())
+        .with(telemetry)
         .init();
-
-    let prometheus_handle = PrometheusBuilder::new()
-        .install_recorder()
-        .expect("Failed to install Prometheus recorder");
 
     let app = Router::new()
         .route("/api/v1/health", get(|| async { "OK" }))
         .route("/api/v1/code/{cid}", get(poll_status))
         .route("/api/v1/execute", post(exec_code))
-        .route(
-            "/api/v1/metrics",
-            get(move || std::future::ready(prometheus_handle.render())),
-        )
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive());
 
@@ -58,7 +57,6 @@ async fn shutdown_signal() {
 
 /// Fetch status of a code execution from the queue.
 async fn poll_status(Path(cid): Path<String>) -> Json<ExecuteResponse> {
-    counter!("http_requests_total", "endpoint" => "poll_status").increment(1);
     info!(cid = %cid, "Polling status for request");
 
     match fetch_from_ipfs(&cid).await {
@@ -82,4 +80,29 @@ async fn poll_status(Path(cid): Path<String>) -> Json<ExecuteResponse> {
             })
         }
     }
+}
+
+fn init_opentelemetry() -> Result<(), Box<dyn std::error::Error>> {
+    let metrics_exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint("http://alloy.lgtm.svc.cluster.local:4317")
+        .build()
+        .expect("Failed to build metrics exporter");
+    let metrics_reader =
+        opentelemetry_sdk::metrics::PeriodicReader::builder(metrics_exporter).build();
+    let meter_provider = SdkMeterProvider::builder()
+        .with_reader(metrics_reader)
+        .build();
+    global::set_meter_provider(meter_provider);
+
+    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()
+        .expect("Failed to create OTLP exporter");
+    let tracer = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(otlp_exporter)
+        .build();
+    global::set_tracer_provider(tracer);
+
+    Ok(())
 }

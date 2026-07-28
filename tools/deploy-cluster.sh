@@ -55,7 +55,8 @@ helm upgrade --install prometheus prometheus-community/prometheus \
   --set alertmanager.enabled=false \
   --set server.persistentVolume.enabled=false \
   --set pushgateway.enabled=false \
-  --set server.extraFlags[0]="enable-feature=remote-write-receiver"
+  --set server.extraFlags[0]="enable-feature=remote-write-receiver" \
+  --set server.extraFlags[1]="enable-feature=exemplar-storage"
 
 echo "  Deploying Grafana Alloy..."
 helm upgrade --install alloy grafana/alloy \

@@ -34,4 +34,5 @@ pub struct RunResult {
     pub stderr: String,
     pub error_message: Option<String>,
     pub execution_time_ms: u64,
+    pub fuel_consumed: u64,
 }

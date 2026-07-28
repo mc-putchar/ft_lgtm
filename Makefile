@@ -59,7 +59,7 @@ help:	# Show this helpful message
 	/^[A-Za-z_0-9-]+:.*?#/ { printf "$(MAB)%-16s $(CYA)%s$(NC)\n", $$1, $$2}' \
 	Makefile
 
-.PHONY: start stop console ssh clean auto
+.PHONY: start stop console ssh clean auto secret
 
 start:	# Start Host VM
 	virsh $(SESSION) start $(VM_NAME)
@@ -86,7 +86,7 @@ auto:	# Automated install and deploy
 	@$(MAKE) deploy
 	@$(MAKE) reload-imgs
 
-secret:
+secret:	# Print Grafana admin password
 	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
 		'kubectl -n lgtm get secret grafana -o jsonpath="{.data.admin-password}"' | \
 		base64 --decode ; echo
@@ -124,17 +124,15 @@ deploy:	# Deploy the Kubernetes cluster
 undeploy:	# Delete the Kubernetes cluster
 	ssh -p $(HOST_SSH_PORT) lgtm@localhost 'bash -c "k3d cluster delete lgtm-cluster"'
 
-reload-imgs: build-imgs	# Reload docker images in the cluster
+reload-imgs: | build-imgs	# Reload docker images in the cluster
 	docker push localhost:5001/ft-lgtm/backend:latest
 	docker push localhost:5001/ft-lgtm/frontend:latest
 	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
 		'kubectl rollout restart deployment/backend deployment/frontend -n app'
 
-build-imgs:
+build-imgs:	# Rebuild docker images
 	docker build -t localhost:5001/ft-lgtm/backend:latest ./app/backend
 	docker build -t localhost:5001/ft-lgtm/frontend:latest ./app/frontend
-	# docker tag ft-backend:latest lgtm-registry:5001/ft-lgtm/backend:latest
-	# docker tag ft-frontend:latest lgtm-registry:5001/ft-lgtm/frontend:latest
 
 isofs:
 	sed "s|<SSH_KEY>|$$(cat $(SSH_KEY))|g" host/user-data.yaml > "$(USER_DATA)"

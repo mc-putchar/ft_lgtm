@@ -14,6 +14,17 @@ pub struct CompileResult {
     pub _workspace: TempDir,
 }
 
+impl Default for CompileResult {
+    fn default() -> Self {
+        Self {
+            success: false,
+            wasm_path: PathBuf::new(),
+            logs: String::new(),
+            _workspace: TempDir::new().unwrap(),
+        }
+    }
+}
+
 pub trait Compiler {
     fn compile(
         source: &str,
