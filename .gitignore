@@ -2,3 +2,4 @@
 *.iso
 *.qcow2
 ipfs-data/
+.DS_Store

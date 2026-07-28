@@ -1,0 +1,75 @@
+// --- METRICS COLLECTION ---
+
+discovery.kubernetes "app_pods" {
+  role = "pod"
+  namespaces {
+    names = ["app"]
+  }
+}
+
+discovery.relabel "backend_metrics" {
+  targets = discovery.kubernetes.app_pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+    regex         = "true"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+    target_label  = "__metrics_path__"
+    regex         = "(.+)"
+  }
+  rule {
+    source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+    target_label  = "__address__"
+    regex         = "([^:]+)(?::\\d+)?;(\\d+)"
+    replacement   = "$1:$2"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    target_label  = "app"
+  }
+}
+
+prometheus.scrape "backend" {
+  targets    = discovery.relabel.backend_metrics.output
+  forward_to = [prometheus.remote_write.prometheus.receiver]
+}
+
+prometheus.remote_write "prometheus" {
+  endpoint {
+    url = "http://prometheus-server.lgtm.svc.cluster.local:80/api/v1/write"
+  }
+}
+
+// --- LOGS COLLECTION ---
+
+loki.source.kubernetes "pod_logs" {
+  targets    = discovery.kubernetes.app_pods.targets
+  forward_to = [loki.process.json_logs.receiver]
+}
+
+loki.process "json_logs" {
+  stage.json {
+    expressions = {
+      level = "level",
+      cid   = "cid",
+      msg   = "message",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

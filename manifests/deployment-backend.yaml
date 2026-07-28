@@ -12,11 +12,20 @@ spec:
     metadata:
       labels:
         app: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "3000"
     spec:
       containers:
         - name: backend
           image: lgtm-registry:5001/ft-lgtm/backend:latest
           imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3000"
           ports:
             - containerPort: 3000
 ---

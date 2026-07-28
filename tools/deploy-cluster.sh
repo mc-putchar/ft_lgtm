@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+k3d cluster delete lgtm-cluster || true
+
 echo "  Creating k3d cluster..."
 k3d cluster create lgtm-cluster \
   --registry-create lgtm-registry:0.0.0.0:5001 \
@@ -16,38 +18,51 @@ kubectl apply -f /mnt/manifests/namespaces.yaml
 
 echo "  Deploying LGTM stack..."
 helm repo add grafana https://grafana.github.io/helm-charts
+helm repo add grafana-community https://grafana-community.github.io/helm-charts
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
+
+echo "  Deploying Grafana..."
+# helm upgrade --install grafana oci://ghcr.io/grafana-community/helm-charts/grafana
+helm upgrade --install grafana grafana/grafana \
+  --namespace lgtm \
+  --set "grafana.ini.server.domain=grafana.lgtm.local" \
+  --set "grafana.ini.server.root_url=http://grafana.lgtm.local:8080" \
+  --set "grafana.ini.server.serve_from_sub_path=false"
+
+echo "  Deploying Loki..."
+# helm upgrade --install loki oci://ghcr.io/grafana-community/helm-charts/loki
+helm upgrade --install loki grafana/loki \
+  --namespace lgtm \
+  --set deploymentMode=SingleBinary \
+  --set singleBinary.replicas=1 \
+  --set backend.replicas=0 \
+  --set read.replicas=0 \
+  --set write.replicas=0 \
+  --set loki.auth_enabled=false \
+  --set loki.commonConfig.replication_factor=1 \
+  --set loki.storage.type=filesystem \
+  --set loki.useTestSchema=true
+
+echo "  Deploying Tempo..."
+# helm upgrade --install tempo oci://ghcr.io/grafana-community/helm-charts/tempo
+helm upgrade --install tempo grafana/tempo \
+  --namespace lgtm
 
 echo "  Deploying Prometheus..."
 helm upgrade --install prometheus prometheus-community/prometheus \
   --namespace lgtm \
   --set alertmanager.enabled=false \
   --set server.persistentVolume.enabled=false \
-  --set pushgateway.enabled=false
-
-echo "  Deploying Loki (Single Binary Mode)..."
-helm upgrade --install loki grafana/loki \
-  --namespace lgtm \
-  --set deploymentMode=SingleBinary \
-  --set loki.auth_enabled=false \
-  --set loki.commonConfig.replication_factor=1 \
-  --set singleBinary.replicas=1
-
-echo "  Deploying Tempo..."
-helm upgrade --install tempo grafana/tempo \
-  --namespace lgtm
-
-echo "  Deploying Grafana..."
-helm upgrade --install grafana grafana/grafana \
-  --namespace lgtm
+  --set pushgateway.enabled=false \
+  --set server.extraFlags[0]="enable-feature=remote-write-receiver"
 
 echo "  Deploying Grafana Alloy..."
 helm upgrade --install alloy grafana/alloy \
   --namespace lgtm \
   --set alloy.clustering.enabled=false \
-  --set alloy.enableReporting=false
-
+  --set alloy.enableReporting=false \
+  --set-file alloy.configMap.content=/mnt/tools/alloy-config.river
 
 echo "  Deploying app..."
 kubectl apply -f /mnt/manifests/deployment-backend.yaml

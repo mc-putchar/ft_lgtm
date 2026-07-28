@@ -86,6 +86,11 @@ auto:	# Automated install and deploy
 	@$(MAKE) deploy
 	@$(MAKE) reload-imgs
 
+secret:
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
+		'kubectl -n lgtm get secret grafana -o jsonpath="{.data.admin-password}"' | \
+		base64 --decode ; echo
+
 .PHONY: install deploy undeploy build-imgs reload-imgs isofs
 
 install: isofs $(VM_CLOUDIMG)	# Install VM from CloudImg
@@ -111,8 +116,10 @@ install: isofs $(VM_CLOUDIMG)	# Install VM from CloudImg
 deploy:	# Deploy the Kubernetes cluster
 	@echo "Waiting for VM to boot and SSH to become available..."
 	@while ! nc -z localhost $(HOST_SSH_PORT); do sleep 5; done
-	@echo "SSH is up. Pushing deployment script to VM..."
-	ssh -p $(HOST_SSH_PORT) lgtm@localhost 'bash -s' < tools/deploy-cluster.sh
+	@echo "Waiting for VM provisioning to complete..."
+	@while ! ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost 'bash -c k3d --version' 2>/dev/null; do sleep 5; done
+	@echo "VM provisioning completed. Deploying the cluster..."
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost 'bash -s' < tools/deploy-cluster.sh
 
 undeploy:	# Delete the Kubernetes cluster
 	ssh -p $(HOST_SSH_PORT) lgtm@localhost 'bash -c "k3d cluster delete lgtm-cluster"'
@@ -120,7 +127,7 @@ undeploy:	# Delete the Kubernetes cluster
 reload-imgs: build-imgs	# Reload docker images in the cluster
 	docker push localhost:5001/ft-lgtm/backend:latest
 	docker push localhost:5001/ft-lgtm/frontend:latest
-	ssh -p 2242 lgtm@localhost \
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
 		'kubectl rollout restart deployment/backend deployment/frontend -n app'
 
 build-imgs:
