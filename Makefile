@@ -30,6 +30,7 @@ ISO_URL := https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.is
 CLOUDIMG_FILE := $(ISO_DIR)/jammy-server-cloudimg-amd64.img
 CLOUDIMG_URL := https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
 VM_BOOT := hd,cdrom
+SED_FLAG := -i
 else ifeq ($(ARCH),arm64)
 ISO_FILE := $(ISO_DIR)/ubuntu-22.04.5-live-server-arm64.iso
 ISO_URL := https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-arm64.iso
@@ -37,6 +38,7 @@ CLOUDIMG_FILE := $(ISO_DIR)/jammy-server-cloudimg-arm64.img
 CLOUDIMG_URL := https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-arm64.img
 VM_BOOT := uefi
 VM_UNDEFINE_OPTS += --nvram
+SED_FLAG := -i ''
 else
 $(error Unsupported architecture: $(ARCH))
 endif
@@ -61,6 +63,12 @@ help:	# Show this helpful message
 
 .PHONY: start stop console ssh clean auto secret
 
+auto:	# Automated install and deploy
+	@$(MAKE) build-imgs
+	@$(MAKE) install
+	@$(MAKE) deploy
+	@$(MAKE) reload-imgs
+
 start:	# Start Host VM
 	virsh $(SESSION) start $(VM_NAME)
 
@@ -80,16 +88,15 @@ clean:	# Remove Host VM and its storage
 	-virsh $(SESSION) undefine $(VM_NAME) $(VM_UNDEFINE_OPTS)
 	-ssh-keygen -f "$$HOME/.ssh/known_hosts" -R "[localhost]:$(HOST_SSH_PORT)" || true
 
-auto:	# Automated install and deploy
-	@$(MAKE) build-imgs
-	@$(MAKE) install
-	@$(MAKE) deploy
-	@$(MAKE) reload-imgs
-
 secret:	# Print Grafana admin password
 	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
 		'kubectl -n lgtm get secret grafana -o jsonpath="{.data.admin-password}"' | \
 		base64 --decode ; echo
+
+devb:	# Deploy development environment (backend)
+	cd app/backend && cargo run --release # Have to compile as release due to lack of space in cluster
+devf:	# Deploy development environment (frontend)
+	cd app/frontend && npm i && npm run dev
 
 .PHONY: install deploy undeploy build-imgs reload-imgs isofs
 
@@ -136,7 +143,7 @@ build-imgs:	# Rebuild docker images
 
 isofs:
 	sed "s|<SSH_KEY>|$$(cat $(SSH_KEY))|g" host/user-data.yaml > "$(USER_DATA)"
-	sed -i '' "s|<PASSWD_HASH>|$$(echo 'lgtm' | openssl passwd -6 -stdin)|g" "$(USER_DATA)"
+	sed $(SED_FLAG) "s|<PASSWD_HASH>|$$(echo 'lgtm' | openssl passwd -6 -stdin)|g" "$(USER_DATA)"
 	docker run --rm -v $(PWD)/host:/data alpine sh -c \
 			"apk add --no-cache cdrkit && mkisofs -output /data/seed.iso -volid cidata -joliet -rock /data/user-data /data/meta-data"
 
