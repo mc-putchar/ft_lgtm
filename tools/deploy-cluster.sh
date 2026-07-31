@@ -57,7 +57,9 @@ helm upgrade --install loki grafana/loki \
 echo "  Deploying Tempo..."
 # helm upgrade --install tempo oci://ghcr.io/grafana-community/helm-charts/tempo
 helm upgrade --install tempo grafana/tempo \
-  --namespace lgtm
+  --namespace lgtm \
+  --set metricsGenerator.enabled=true \
+  --set tempo.metricsGenerator.enabled=true
 
 echo "  Deploying Prometheus..."
 helm upgrade --install prometheus prometheus-community/prometheus \
@@ -93,5 +95,6 @@ kubectl apply -f /mnt/manifests/deployment-backend.yaml
 kubectl apply -f /mnt/manifests/deployment-frontend.yaml
 kubectl apply -f /mnt/manifests/deployment-ipfs.yaml
 kubectl apply -f /mnt/manifests/ingress.yaml
+kubectl apply -f /mnt/manifests/configmap-dashboard.yaml
 
 echo "Cluster deployment complete!"
