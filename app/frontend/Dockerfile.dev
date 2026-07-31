@@ -4,7 +4,8 @@ WORKDIR /app
 COPY ./package.json .
 RUN npm install
 COPY . .
-ENV PUBLIC_API_URL=http://localhost:3000
+ARG PUBLIC_API_URL=http://localhost:3000/api/v1
+ENV PUBLIC_API_URL=${PUBLIC_API_URL}
 
 EXPOSE 3000
 CMD ["npm", "run", "dev"]
