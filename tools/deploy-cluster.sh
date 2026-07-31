@@ -2,6 +2,15 @@
 
 set -euo pipefail
 
+VM_BUILD=false
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --vm-build) VM_BUILD=true ;;
+        *) echo "Unknown option: $1" ;;
+    esac
+    shift
+done
+
 k3d cluster delete lgtm-cluster || true
 
 echo "  Creating k3d cluster..."
@@ -69,6 +78,15 @@ helm upgrade --install alloy grafana/alloy \
   --set "alloy.extraPorts[0].targetPort=4317" \
   --set "alloy.extraPorts[0].protocol=TCP" \
   --set-file alloy.configMap.content=/mnt/tools/alloy-config.river
+
+if [[ "$VM_BUILD" == "true" ]]; then
+    echo "  Building docker images..."
+    docker build -t localhost:5001/ft-lgtm/backend:latest /mnt/app/backend
+    docker build --build-arg PUBLIC_API_URL=http://lgtm.localhost:8080/api/v1 -t localhost:5001/ft-lgtm/frontend:latest /mnt/app/frontend
+    echo "  Pushing docker images..."
+    docker push localhost:5001/ft-lgtm/backend:latest
+    docker push localhost:5001/ft-lgtm/frontend:latest
+fi
 
 echo "  Deploying app..."
 kubectl apply -f /mnt/manifests/deployment-backend.yaml
