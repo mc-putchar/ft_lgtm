@@ -2,6 +2,8 @@
 
 # ft_lgtm
 
+![ft-lgtm hello world](extra/ft-lgtm-hello.png)
+
 ## Description
 
 Looks Good To Monitor (LGTM) is an observability stack for monitoring and alerting, hidden behind a code execution web app.  
@@ -30,17 +32,6 @@ brew services start libvirt
 - `make auto` for automated setup and deploy (approx ~5-10 mins)  
 - `make help` to display all available commands  
 
-#### Developer environment
-
-For faster lightweight iteration, a docker compose deployment is included.  
-To correctly push logs to Loki, we need a Loki Docker Driver plugin, that can be installed with:  
-
-```sh
-docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
-```
-
-Bring the dev env up with `make devup` and take it down with `make devdown`.  
-
 ## Usage
 
 ### Grafana
@@ -53,11 +44,28 @@ Bring the dev env up with `make devup` and take it down with `make devdown`.
   - Tempo: http://tempo.lgtm.svc.cluster.local:3200
   - Prometheus: http://prometheus-server.lgtm.svc.cluster.local:80
 
-- Import the Dashboard from file [extra/LGTM-Dashboard.json](extra/LGTM-Dashboard.json)
+- Import the LGTM Dashboard from file [extra/LGTM-Dashboard.json](extra/LGTM-Dashboard.json)
+
+![Dashboard Metrics](extra/dashboard-metrics.png)
+![Dashboard Traces](extra/dashboard-traces.png)
 
 ### Code execution app
 
 Access the code execution app at [http://lgtm.local:8080](http://lgtm.local:8080)  
+
+![ft-lgtm playground app](extra/ft-lgtm-donut.png)
+
+
+### Developer environment
+
+For faster lightweight iteration, a docker compose deployment is included.  
+To correctly push logs to Loki, we need a Loki Docker Driver plugin, that can be installed with:  
+
+```sh
+docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+```
+
+Bring the dev env up with `make devup` and take it down with `make devdown`.  
 
 ## Resources
 
