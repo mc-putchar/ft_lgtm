@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { PUBLIC_API_URL } from '$env/static/public';
     import type { ExecuteRequest } from '$lib/types/ExecuteRequest';
     import type { ExecuteResponse } from '$lib/types/ExecuteResponse';
     import Toolbar from './Toolbar.svelte';
@@ -34,7 +35,7 @@
     }
 
     async function executeCode(payload: ExecuteRequest) {
-      const reply = await fetch('/api/v1/execute', {
+      const reply = await fetch(`${PUBLIC_API_URL}/execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

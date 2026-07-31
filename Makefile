@@ -91,6 +91,12 @@ secret:	# Print Grafana admin password
 		'kubectl -n lgtm get secret grafana -o jsonpath="{.data.admin-password}"' | \
 		base64 --decode ; echo
 
+devup:	# Start development environment
+	docker compose -f app/compose.yaml up -d --build
+
+devdown:	# Stop development environment
+	docker compose -f app/compose.yaml down
+
 .PHONY: install deploy undeploy build-imgs reload-imgs isofs
 
 install: isofs $(VM_CLOUDIMG)	# Install VM from CloudImg
