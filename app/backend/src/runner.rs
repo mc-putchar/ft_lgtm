@@ -7,7 +7,10 @@ use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimi
 use wasmtime_wasi::p2::bindings::Command;
 use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-pub const DEFAULT_FUEL: u64 = 500_000_000_000_000;
+const DEFAULT_FUEL: u64 = 50_000_000_000;
+const DEFAULT_STDOUT_LIMIT: usize = 10 * 1024;
+const DEFAULT_STDERR_LIMIT: usize = 10 * 1024;
+const DEFAULT_MEMORY_LIMIT: usize = 10 * 1024 * 1024;
 
 struct WasiState {
     ctx: WasiCtx,
@@ -39,14 +42,14 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
     let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker).expect("Failed to add WASI to linker");
 
-    let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(10 * 1024);
-    let stderr = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(10 * 1024);
+    let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(DEFAULT_STDOUT_LIMIT);
+    let stderr = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(DEFAULT_STDERR_LIMIT);
 
     let mut builder = WasiCtxBuilder::new();
     builder.stdout(stdout.clone()).stderr(stderr.clone());
 
     let limits = StoreLimitsBuilder::new()
-        .memory_size(10 * 1024 * 1024)
+        .memory_size(DEFAULT_MEMORY_LIMIT)
         .build();
 
     let mut store = Store::new(

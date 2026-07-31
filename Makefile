@@ -93,10 +93,11 @@ secret:	# Print Grafana admin password
 		'kubectl -n lgtm get secret grafana -o jsonpath="{.data.admin-password}"' | \
 		base64 --decode ; echo
 
-devb:	# Deploy development environment (backend)
-	cd app/backend && cargo run --release # Have to compile as release due to lack of space in cluster
-devf:	# Deploy development environment (frontend)
-	cd app/frontend && npm i && npm run dev
+devup:	# Start development environment
+	docker compose -f app/compose.yaml up -d --build
+
+devdown:	# Stop development environment
+	docker compose -f app/compose.yaml down
 
 .PHONY: install deploy undeploy build-imgs reload-imgs isofs
 
