@@ -3,6 +3,10 @@ otelcol.receiver.otlp "default" {
   grpc {
     endpoint = "0.0.0.0:4317"
   }
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
 }
 
 // --- METRICS ---
@@ -20,6 +24,9 @@ prometheus.remote_write "prometheus" {
 otelcol.processor.batch "default" {
   send_batch_size = 1000
   timeout         = "1s"
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
 }
 
 otelcol.exporter.otlp "tempo" {
@@ -48,8 +55,8 @@ loki.process "json_logs" {
   stage.json {
     expressions = {
       level = "level",
-      cid   = "cid",
-      msg   = "message",
+      cid   = "fields.cid",
+      msg   = "fields.message",
     }
   }
   stage.labels {
@@ -64,14 +71,4 @@ loki.write "loki" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
   }
-}
-
-// --- PIPELINE ---
-otelcol.receiver.otlp.default.output {
-  metrics = [otelcol.exporter.prometheus.default.input]
-  traces  = [otelcol.processor.batch.default.input]
-}
-
-otelcol.processor.batch.default.output {
-  traces = [otelcol.exporter.otlp.tempo.input]
 }

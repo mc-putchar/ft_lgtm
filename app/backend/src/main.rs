@@ -1,12 +1,11 @@
 use backend::executor::exec_code;
 use backend::ipfs::fetch_from_ipfs;
 use backend::models::{ExecuteResponse, ExecutionStatus};
+use backend::otel::init_opentelemetry;
 
 use axum::routing::{get, post};
 use axum::{Json, Router, extract::Path};
 use opentelemetry::global;
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
@@ -80,29 +79,4 @@ async fn poll_status(Path(cid): Path<String>) -> Json<ExecuteResponse> {
             })
         }
     }
-}
-
-fn init_opentelemetry() -> Result<(), Box<dyn std::error::Error>> {
-    let metrics_exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_tonic()
-        .with_endpoint("http://alloy.lgtm.svc.cluster.local:4317")
-        .build()
-        .expect("Failed to build metrics exporter");
-    let metrics_reader =
-        opentelemetry_sdk::metrics::PeriodicReader::builder(metrics_exporter).build();
-    let meter_provider = SdkMeterProvider::builder()
-        .with_reader(metrics_reader)
-        .build();
-    global::set_meter_provider(meter_provider);
-
-    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_tonic()
-        .build()
-        .expect("Failed to create OTLP exporter");
-    let tracer = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-        .with_batch_exporter(otlp_exporter)
-        .build();
-    global::set_tracer_provider(tracer);
-
-    Ok(())
 }

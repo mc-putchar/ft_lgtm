@@ -1,0 +1,48 @@
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://prometheus-server.lgtm.svc.cluster.local:80
+        jsonData:
+          exemplarTraceIdDestinations:
+            - name: trace_id
+              datasourceUid: tempo
+
+      - name: Loki
+        type: loki
+        uid: loki
+        url: http://loki.lgtm.svc.cluster.local:3100
+
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        url: http://tempo.lgtm.svc.cluster.local:3200
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: 'loki'
+            spanStartTimeShift: '1s'
+            spanEndTimeShift: '1s'
+            filterByTraceID: false
+            customQuery: true
+            query: '{service_name="backend"} |= "${__trace.traceId}"'
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+dashboards:
+  default:
+    lgtm-dashboard:
+      file: /mnt/extra/LGTM-Dashboard.json

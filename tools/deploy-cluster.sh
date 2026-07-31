@@ -26,6 +26,7 @@ echo "  Deploying Grafana..."
 # helm upgrade --install grafana oci://ghcr.io/grafana-community/helm-charts/grafana
 helm upgrade --install grafana grafana/grafana \
   --namespace lgtm \
+  -f /mnt/manifests/grafana-values.yaml \
   --set "grafana.ini.server.domain=grafana.lgtm.local" \
   --set "grafana.ini.server.root_url=http://grafana.lgtm.local:8080" \
   --set "grafana.ini.server.serve_from_sub_path=false"
@@ -55,7 +56,7 @@ helm upgrade --install prometheus prometheus-community/prometheus \
   --set alertmanager.enabled=false \
   --set server.persistentVolume.enabled=false \
   --set pushgateway.enabled=false \
-  --set server.extraFlags[0]="enable-feature=remote-write-receiver" \
+  --set server.extraFlags[0]="web.enable-remote-write-receiver" \
   --set server.extraFlags[1]="enable-feature=exemplar-storage"
 
 echo "  Deploying Grafana Alloy..."
@@ -63,6 +64,10 @@ helm upgrade --install alloy grafana/alloy \
   --namespace lgtm \
   --set alloy.clustering.enabled=false \
   --set alloy.enableReporting=false \
+  --set "alloy.extraPorts[0].name=otlp-grpc" \
+  --set "alloy.extraPorts[0].port=4317" \
+  --set "alloy.extraPorts[0].targetPort=4317" \
+  --set "alloy.extraPorts[0].protocol=TCP" \
   --set-file alloy.configMap.content=/mnt/tools/alloy-config.river
 
 echo "  Deploying app..."
