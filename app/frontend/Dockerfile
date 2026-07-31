@@ -9,6 +9,8 @@ COPY package.json pnpm-lock.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
+ARG PUBLIC_API_URL
+ENV PUBLIC_API_URL=${PUBLIC_API_URL}
 COPY . .
 RUN pnpm build
 
@@ -17,5 +19,7 @@ FROM caddy:2-alpine AS runner
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=builder /app/build /usr/share/caddy
 
+ARG PUBLIC_API_URL
+ENV PUBLIC_API_URL=${PUBLIC_API_URL}
 EXPOSE 80
 CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

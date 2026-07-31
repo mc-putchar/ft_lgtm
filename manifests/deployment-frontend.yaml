@@ -17,6 +17,9 @@ spec:
         - name: frontend
           image: lgtm-registry:5001/ft-lgtm/frontend:latest
           imagePullPolicy: Always
+          env:
+            - name: PUBLIC_API_URL
+              value: "http://lgtm.localhost:8080/api/v1"
           ports:
             - containerPort: 80
 ---

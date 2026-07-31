@@ -27,7 +27,7 @@ datasources:
             spanEndTimeShift: '1s'
             filterByTraceID: false
             customQuery: true
-            query: '{service_name="backend"} |= "${__trace.traceId}"'
+            query: '{service_name="loki.source.kubernetes.pod_logs"} |= "${__trace.traceId}"'
 
 dashboardProviders:
   dashboardproviders.yaml:
@@ -41,8 +41,3 @@ dashboardProviders:
         editable: true
         options:
           path: /var/lib/grafana/dashboards/default
-
-dashboards:
-  default:
-    lgtm-dashboard:
-      file: /mnt/extra/LGTM-Dashboard.json

@@ -32,6 +32,33 @@ spec:
             name: ipfs-service
             port:
               number: 8080
+  - host: lgtm.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 3000
+  - host: ipfs.lgtm.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ipfs-service
+            port:
+              number: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -41,6 +68,16 @@ metadata:
 spec:
   rules:
   - host: grafana.lgtm.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 80
+  - host: grafana.lgtm.localhost
     http:
       paths:
       - path: /
