@@ -1,26 +1,32 @@
 <script lang="ts">
     import CodeMirror from "svelte-codemirror-editor";
     import { rust } from "@codemirror/lang-rust";
-    import { javascript } from "@codemirror/lang-javascript";
-    import { python } from "@codemirror/lang-python";
+    // import { cpp } from "@codemirror/lang-cpp";
     import { catppuccinMocha } from "@catppuccin/codemirror";
+    import Toolbar from './Toolbar.svelte';
 
     let {
         code = $bindable(),
-        language
+        language,
+        isExecuting,
+        onRun,
+        readonly = false,
     }: {
         code: string;
         language: string;
+        isExecuting: boolean;
+        onRun?: () => void;
+        readonly?: boolean;
     } = $props();
 
     let languageExtension = $derived.by(() => {
         switch (language.toLowerCase()) {
             case "rust":
                 return rust();
-            case "javascript":
-                return javascript();
-            case "python":
-                return python();
+            // case "cpp":
+            //     return cpp();
+            // case "c":
+            //     return cpp();
             default:
                 return rust();
         }
@@ -28,9 +34,14 @@
 </script>
 
 <section class="pane editor-pane">
-    <div class="pane-header">Editor ({language})</div>
+    <div class="pane-header">
+        Editor
+    </div>
+    {#if !readonly}
+    <Toolbar bind:language {isExecuting} onRun={onRun} />
+    {/if}
     <div class="editor-wrapper">
-        <CodeMirror bind:value={code} lang={languageExtension} theme={catppuccinMocha} />
+        <CodeMirror bind:value={code} lang={languageExtension} theme={catppuccinMocha} readonly={readonly} />
     </div>
 </section>
 

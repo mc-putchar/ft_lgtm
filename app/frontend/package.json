@@ -33,8 +33,6 @@
 	},
 	"dependencies": {
 		"@catppuccin/codemirror": "^1.0.3",
-		"@codemirror/lang-javascript": "^6.2.5",
-		"@codemirror/lang-python": "^6.2.1",
 		"@codemirror/lang-rust": "^6.0.2",
 		"svelte-codemirror-editor": "^2.1.0"
 	}

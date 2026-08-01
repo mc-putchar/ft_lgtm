@@ -79,6 +79,7 @@ Bring the dev env up with `make devup` and take it down with `make devdown`.
 ##### Svelte
 
 [https://svelte.dev/docs/svelte/overview](https://svelte.dev/docs/svelte/overview)  
+[https://github.com/touchifyapp/svelte-codemirror-editor](https://github.com/touchifyapp/svelte-codemirror-editor)  
 
 ##### IPFS
 
