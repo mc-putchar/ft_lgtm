@@ -24,6 +24,7 @@ echo "  Waiting for cluster to be ready..."
 kubectl cluster-info
 
 kubectl apply -f /mnt/manifests/namespaces.yaml
+kubectl apply -f /mnt/manifests/configmap-dashboard.yaml
 
 echo "  Deploying LGTM stack..."
 helm repo add grafana https://grafana.github.io/helm-charts
@@ -95,6 +96,5 @@ kubectl apply -f /mnt/manifests/deployment-backend.yaml
 kubectl apply -f /mnt/manifests/deployment-frontend.yaml
 kubectl apply -f /mnt/manifests/deployment-ipfs.yaml
 kubectl apply -f /mnt/manifests/ingress.yaml
-kubectl apply -f /mnt/manifests/configmap-dashboard.yaml
 
 echo "Cluster deployment complete!"

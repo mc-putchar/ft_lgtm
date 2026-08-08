@@ -41,3 +41,8 @@ dashboardProviders:
         editable: true
         options:
           path: /var/lib/grafana/dashboards/default
+
+dashboards:
+  default:
+    lgtm-dashboard:
+      file: dashboards/LGTM-Dashboard.json
