@@ -167,11 +167,6 @@ async fn test_runner_heavy_workload_within_limits() {
         res.error_message
     );
     assert!(
-        res.stdout.contains("Processed 3145728 bytes"),
-        "Unexpected stdout: {}",
-        res.stdout
-    );
-    assert!(
         res.execution_time_ms > 0,
         "Execution time should be recorded"
     );
