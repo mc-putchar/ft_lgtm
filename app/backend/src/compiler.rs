@@ -1,18 +1,15 @@
-pub mod c;
-// pub mod cpp;
-pub mod p2adapter;
-pub mod rust;
-// pub mod zig;
+pub mod clang;
+mod p2adapter;
+pub mod rustc;
 
-use c::CCompiler;
-// use cpp::CppCompiler;
-use rust::RustCompiler;
-// use zig::ZigCompiler;
+use clang::{CCompiler, CppCompiler};
+use rustc::RustCompiler;
 
 use std::path::PathBuf;
 use tempfile::TempDir;
+use tracing::instrument;
 
-pub const COMPILE_TIMELIMIT: u64 = 10;
+pub const COMPILE_TIMELIMIT: u64 = 5;
 
 pub struct CompileRequest {
     pub lang: String,
@@ -54,19 +51,14 @@ pub trait Compiler {
     ) -> impl std::future::Future<Output = Result<CompileResult, String>> + Send;
 }
 
+#[instrument(name = "compile_wasm", skip(source), fields(language = %lang))]
 pub async fn get_compiled_code(lang: &str, source: &str) -> Result<CompileResult, String> {
     match lang {
-        "rust" => RustCompiler::compile(source).await,
+        "rs" => RustCompiler::compile(source).await,
         "c" => CCompiler::compile(source).await,
+        "cpp" => CppCompiler::compile(source).await,
         _ => Err(format!("Unsupported language: {}", lang)),
     }
-    // TODO: include Go and AssemblyScript support
-    // ```
-    // tinygo build -target=wasi -o module.wasm main.go
-    // ```
-    // ```
-    // asc main.ts -o module.wasm
-    // ```
 }
 
 /*
@@ -146,11 +138,11 @@ async fn test_compiler_enforces_timeout() {
 #[tokio::test]
 async fn test_c_compiler_success_valid_c() {
     let code = r#"
-        #include <stdio.h>
-
         int main() {
-            printf("Hello, World!\n");
-            return 0;
+            int i = 42;
+            int j = 10;
+            int k = i * j;
+            return k;
         }
     "#;
 

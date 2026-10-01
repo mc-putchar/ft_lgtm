@@ -18,20 +18,35 @@ impl Compiler for RustCompiler {
             .await
             .expect("Failed to write source code");
 
-        let compile_future = Command::new("rustc")
-            .args([
-                "--target",
-                "wasm32-wasip2",
-                src_path.to_str().unwrap(),
-                "-o",
-                wasm_path.to_str().unwrap(),
-            ])
-            .output();
+        let mut args = vec![
+            "--edition".to_string(),
+            "2024".to_string(),
+            "--target".to_string(),
+            "wasm32-wasip2".to_string(),
+        ];
+
+        if !source_code.contains("fn main()") {
+            args.push("--crate-type".to_string());
+            args.push("cdylib".to_string());
+        }
+
+        args.push(src_path.to_str().unwrap().to_string());
+        args.push("-o".to_string());
+        args.push(wasm_path.to_str().unwrap().to_string());
+
+        let compile_future = Command::new("rustc").args(&args).output();
 
         let output = match timeout(Duration::from_secs(COMPILE_TIMELIMIT), compile_future).await {
             Ok(Ok(out)) => out,
             Ok(Err(e)) => return Err(format!("Execution failed: {e}")),
-            Err(_) => return Err("Compilation timed out".into()),
+            Err(_) => {
+                return Ok(CompileResult {
+                    success: false,
+                    wasm_path,
+                    logs: "Compilation timed out".into(),
+                    _workspace: workspace,
+                });
+            }
         };
 
         let logs = String::from_utf8_lossy(&output.stderr).to_string();

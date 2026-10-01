@@ -20,3 +20,4 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 ts-rs = "12.0.1"
 wasmtime = "47.0.1"
 wasmtime-wasi = "47.0.1"
+wit-component = "0.260.0"

@@ -5,7 +5,7 @@
 	import Editor from '$lib/components/Editor.svelte';
 	import Terminal from '$lib/components/Terminal.svelte';
 
-    let language = $state("rust");
+    let language = $state("rs");
     let code = $state("fn main() {\n    println!(\"Hello, World!\");\n}");
     let isExecuting = $state(false);
     let response: ExecuteResponse | null = $state(null);

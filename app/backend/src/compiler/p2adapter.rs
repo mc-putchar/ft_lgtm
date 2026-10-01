@@ -1,25 +1,48 @@
 use std::path::Path;
-use tokio::process::Command;
+use wit_component::ComponentEncoder;
 
-const ADAPTER_PATH: &str = "/app/wasi_snapshot_preview1.wasm";
+const ADAPTER_PATH: &str = "/opt/wasi_snapshot_preview1.command.wasm";
+const REACTOR_PATH: &str = "/opt/wasi_snapshot_preview1.reactor.wasm";
 
-pub async fn adapt_p1_to_p2(input_wasm: &Path, output_wasm: &Path) -> Result<(), String> {
-    let output = Command::new("wasm-tools")
-        .args([
-            "component",
-            "new",
-            input_wasm.to_str().unwrap(),
-            "-o",
-            output_wasm.to_str().unwrap(),
-            "--adapt",
-            &format!("wasi_snapshot_preview1={}", ADAPTER_PATH),
-        ])
-        .output()
-        .await
-        .expect("Failed to execute P1>P2 adapter");
+pub async fn adapt_p1_to_p2(
+    input_wasm: &Path,
+    output_wasm: &Path,
+    is_reactor: bool,
+) -> Result<(), String> {
+    let adapter_path = if is_reactor {
+        REACTOR_PATH
+    } else {
+        ADAPTER_PATH
+    };
+    let adapter_bytes = match tokio::fs::read(adapter_path).await {
+        Ok(bytes) => bytes,
+        Err(e) => return Err(format!("Failed to read WASI adapter: {e}")),
+    };
 
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    let core_wasm = match tokio::fs::read(&input_wasm).await {
+        Ok(bytes) => bytes,
+        Err(e) => return Err(format!("Failed to read core wasm: {e}")),
+    };
+
+    let component_bytes = match ComponentEncoder::default()
+        .module(&core_wasm)
+        .map_err(|e| format!("Failed to configure ComponentEncoder: {e}"))
+        .and_then(|enc| {
+            // Apply the adapter to map the Preview 1 imports
+            enc.adapter("wasi_snapshot_preview1", &adapter_bytes)
+                .map_err(|e| format!("Failed to apply adapter: {e}"))
+        })
+        .and_then(|enc| {
+            enc.validate(true)
+                .encode()
+                .map_err(|e| format!("Component encode failed: {e}"))
+        }) {
+        Ok(bytes) => bytes,
+        Err(e) => return Err(e),
+    };
+
+    if let Err(e) = tokio::fs::write(&output_wasm, &component_bytes).await {
+        return Err(format!("Failed to write component wasm: {e}"));
     }
 
     Ok(())
