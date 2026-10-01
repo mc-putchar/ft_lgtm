@@ -53,7 +53,7 @@
 <main class="ide-container">
     <div class="workspace">
         <section class="pane editor-pane">
-            <Editor bind:code {language} {isExecuting} onRun={handleRun} />
+            <Editor bind:code bind:language {isExecuting} onRun={handleRun} />
         </section>
 
         <section class="pane output-pane">

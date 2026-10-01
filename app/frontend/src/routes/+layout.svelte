@@ -20,7 +20,7 @@
             </a>
             <span class="bracket pulsing">]</span>
         </div>
-        <a href="/x" aria-current={page.url.pathname === '/'}>Explore</a>
+        <a href="/x" aria-current={page.url.pathname === '/x'}>Explore</a>
         <a href="/exec" aria-current={page.url.pathname === '/exec'}>Playground</a>
     </div>
 </header>
