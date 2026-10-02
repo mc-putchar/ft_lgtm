@@ -1,5 +1,5 @@
 use backend::compiler::Compiler;
-use backend::compiler::rust::RustCompiler;
+use backend::compiler::rustc::RustCompiler;
 use backend::runner::{ENGINE, run_wasm};
 
 #[tokio::test]

@@ -2,6 +2,7 @@ use crate::models::RunResult;
 
 use std::path::Path;
 use std::sync::LazyLock;
+use tracing::{Span, instrument};
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder, Trap};
 use wasmtime_wasi::p2::bindings::Command;
@@ -10,7 +11,7 @@ use wasmtime_wasi::{I32Exit, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 const DEFAULT_FUEL: u64 = 50_000_000_000;
 const DEFAULT_STDOUT_LIMIT: usize = 10 * 1024;
 const DEFAULT_STDERR_LIMIT: usize = 10 * 1024;
-const DEFAULT_MEMORY_LIMIT: usize = 10 * 1024 * 1024;
+const DEFAULT_MEMORY_SIZE_LIMIT: usize = 64 * 1024 * 1024;
 
 struct WasiState {
     ctx: WasiCtx,
@@ -38,6 +39,15 @@ pub static ENGINE: LazyLock<Engine> = LazyLock::new(|| {
     Engine::new(&config).expect("Failed to create Wasmtime engine")
 });
 
+#[instrument(
+    name = "execute_wasm",
+    skip(engine, wasm_path),
+    fields(
+        fuel_consumed = tracing::field::Empty,
+        execution_time_ms = tracing::field::Empty
+    ),
+    err
+)]
 pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, String> {
     let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker).expect("Failed to add WASI to linker");
@@ -49,7 +59,7 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
     builder.stdout(stdout.clone()).stderr(stderr.clone());
 
     let limits = StoreLimitsBuilder::new()
-        .memory_size(DEFAULT_MEMORY_LIMIT)
+        .memory_size(DEFAULT_MEMORY_SIZE_LIMIT)
         .build();
 
     let mut store = Store::new(
@@ -66,6 +76,7 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
 
     let engine_clone = engine.clone();
     let wasm_path_clone = wasm_path.to_path_buf();
+
     let current_span = tracing::Span::current();
     let component = tokio::task::spawn_blocking(move || {
         let _entered = current_span.entered();
@@ -86,6 +97,10 @@ pub async fn run_wasm(engine: &Engine, wasm_path: &Path) -> Result<RunResult, St
     let execution_time_ms = start.elapsed().as_millis() as u64;
     let fuel_remaining = store.get_fuel().expect("Failed to get fuel");
     let fuel_consumed = DEFAULT_FUEL - fuel_remaining;
+
+    let span = Span::current();
+    span.record("fuel_consumed", fuel_consumed);
+    span.record("execution_time_ms", execution_time_ms);
 
     let error_message = match run_res {
         Ok(Ok(())) => None,

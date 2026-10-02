@@ -75,6 +75,7 @@ Bring the dev env up with `make devup` and take it down with `make devdown`.
 [https://docs.wasmtime.dev/api/wasmtime/index.html](https://docs.wasmtime.dev/api/wasmtime/index.html)  
 [https://doc.rust-lang.org/nightly/rustc/platform-support/wasm32-wasip2.html](https://doc.rust-lang.org/nightly/rustc/platform-support/wasm32-wasip2.html)  
 [https://github.com/bytecodealliance/wasmtime](https://github.com/bytecodealliance/wasmtime)  
+[https://component-model.bytecodealliance.org/](https://component-model.bytecodealliance.org/)  
 
 ##### Svelte
 

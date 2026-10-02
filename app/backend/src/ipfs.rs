@@ -2,8 +2,7 @@ use crate::models::RunResult;
 
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
-
-const BASE_URL: &str = "http://ipfs-service:5001/api/v0";
+use tracing::instrument;
 
 #[derive(Deserialize)]
 struct IpfsAddResponse {
@@ -13,6 +12,7 @@ struct IpfsAddResponse {
     hash: String,
 }
 
+#[instrument(name = "publish_to_ipfs", skip_all)]
 pub async fn publish_to_ipfs(code: &str, output: &RunResult) -> Result<String, reqwest::Error> {
     let client = reqwest::Client::new();
     let output_json = serde_json::to_string(output).unwrap_or_default();
@@ -24,8 +24,9 @@ pub async fn publish_to_ipfs(code: &str, output: &RunResult) -> Result<String, r
         )
         .part("output", Part::text(output_json).file_name("output.json"));
 
+    let base_url = std::env::var("IPFS_API_URL").unwrap_or_else(|_| "http://ipfs:5001".to_string());
     let response = client
-        .post(format!("{}/add?wrap-with-directory=true", BASE_URL))
+        .post(format!("{}/api/v0/add?wrap-with-directory=true", base_url))
         .multipart(form)
         .send()
         .await?
@@ -47,7 +48,8 @@ pub async fn publish_to_ipfs(code: &str, output: &RunResult) -> Result<String, r
 pub async fn fetch_from_ipfs(cid: &str) -> Result<RunResult, reqwest::Error> {
     let client = reqwest::Client::new();
 
-    let url = format!("{}/cat?arg={}/output.json", BASE_URL, cid);
+    let base_url = std::env::var("IPFS_API_URL").unwrap_or_else(|_| "http://ipfs:5001".to_string());
+    let url = format!("{}/api/v0/cat?arg={}/output.json", base_url, cid);
 
     let response = client.post(&url).send().await?.text().await?;
     let data: RunResult = serde_json::from_str(&response).unwrap();

@@ -9,7 +9,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: backend
     restart: unless-stopped
     networks:
       - ft_lgtm
@@ -20,6 +19,7 @@ services:
       - PORT=3000
       - OTEL_SERVICE_NAME=backend
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4317
+      - IPFS_API_URL=http://ipfs:5001
     logging:
       driver: loki
       options:
@@ -32,7 +32,6 @@ services:
       dockerfile: Dockerfile.dev
       args:
         PUBLIC_API_URL: http://localhost:3000/api/v1
-    container_name: frontend
     restart: unless-stopped
     networks:
       - ft_lgtm
@@ -46,7 +45,6 @@ services:
 
   otel-lgtm:
     image: grafana/otel-lgtm:latest
-    container_name: otel-lgtm
     restart: unless-stopped
     networks:
       - ft_lgtm
@@ -59,9 +57,8 @@ services:
       - "4318:4318"
       - "9090:9090"
 
-  ipfs-service:
+  ipfs:
     image: ipfs/kubo:latest
-    container_name: ipfs
     restart: unless-stopped
     networks:
       - ft_lgtm

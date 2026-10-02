@@ -138,11 +138,11 @@ async fn test_compiler_enforces_timeout() {
 #[tokio::test]
 async fn test_c_compiler_success_valid_c() {
     let code = r#"
+        #include <stdio.h>
+
         int main() {
-            int i = 42;
-            int j = 10;
-            int k = i * j;
-            return k;
+            printf("Hello, World!\n");
+            return (0);
         }
     "#;
 
@@ -164,10 +164,8 @@ async fn test_c_compiler_success_valid_c() {
 #[tokio::test]
 async fn test_c_compiler_syntax_error() {
     let invalid_code = r#"
-        #include <stdio.h>
-
         int main() {
-            printf("Hello, World!\n")
+            int a = 42
             return ;
         }
     "#;
