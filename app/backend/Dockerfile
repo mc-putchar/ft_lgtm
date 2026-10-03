@@ -43,13 +43,10 @@ RUN wget https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.1/
 
 FROM rust:slim-trixie AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    clang \
-    nodejs \
-    npm \
-    python3 \
-    python3-pip \
-    ca-certificates \
     git \
+    ca-certificates \
+    clang \
+    # nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add wasm32-wasip2
@@ -68,12 +65,9 @@ ENV WASI_SDK_PATH="/opt/wasi-sdk"
 ENV GOBIN=/usr/local/bin
 RUN CGO_ENABLED=0 go install go.bytecodealliance.org/cmd/wit-bindgen-go@latest
 
-# Install componentize-py for Python components
-RUN pip install --no-cache-dir --break-system-packages componentize-py
-
 # Install jco, componentize-js, and preview2-shim for JavaScript components
-RUN npm install -g @bytecodealliance/jco @bytecodealliance/componentize-js @bytecodealliance/preview2-shim && npm cache clean --force
-ENV NODE_PATH="/usr/local/lib/node_modules"
+# RUN npm install -g @bytecodealliance/jco @bytecodealliance/componentize-js @bytecodealliance/preview2-shim && npm cache clean --force
+# ENV NODE_PATH="/usr/local/lib/node_modules"
 
 WORKDIR /app
 
