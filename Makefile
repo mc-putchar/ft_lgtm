@@ -6,8 +6,8 @@ SESSION := --connect qemu:///session
 
 VM_NAME ?= LGTM
 HOSTNAME ?= lgtm-host
-VM_RAM_MB ?= 8192
-VM_VCPUS ?= 8
+VM_RAM_MB ?= 12288
+VM_VCPUS ?= 10
 VM_DISK_SIZE_GB ?= 25
 
 SSH_KEY ?= ${HOME}/.ssh/mc-putchar.pub
@@ -65,7 +65,10 @@ help:	# Show this helpful message
 	/^[A-Za-z_0-9-]+:.*?#/ { printf "$(MAB)%-16s $(CYA)%s$(NC)\n", $$1, $$2}' \
 	Makefile
 
-.PHONY: start stop console ssh clean auto secret
+.PHONY: start stop console ssh clean auto secret cluster
+
+cluster:
+	BUILD_LOC=vm $(MAKE) auto
 
 auto:	# Automated install and deploy
 ifeq ($(BUILD_LOC), host)
@@ -97,8 +100,8 @@ clean:	# Remove Host VM and its storage
 	-virsh $(SESSION) undefine $(VM_NAME) $(VM_UNDEFINE_OPTS)
 	-ssh-keygen -f "$$HOME/.ssh/known_hosts" -R "[localhost]:$(HOST_SSH_PORT)" || true
 
-secret:	# Print Grafana admin password
-	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
+secret: | $(SSH_KEY)	# Print Grafana admin password
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=yes -i $(SSH_KEY) lgtm@localhost \
 		'kubectl -n lgtm get secret grafana -o jsonpath="{.data.admin-password}"' | \
 		base64 --decode ; echo
 
@@ -130,13 +133,13 @@ install: isofs $(VM_CLOUDIMG)	# Install VM from CloudImg
 		--import \
 		--noautoconsole
 
-deploy:	# Deploy the Kubernetes cluster
+deploy:	| $(SSH_KEY)	# Deploy the Kubernetes cluster
 	@echo "Waiting for VM to boot and SSH to become available..."
 	@while ! nc -z localhost $(HOST_SSH_PORT); do sleep 5; done
 	@echo "Waiting for VM provisioning to complete..."
-	@while ! ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost 'bash -c k3d --version' 2>/dev/null; do sleep 5; done
+	@while ! ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=yes -i $(SSH_KEY) lgtm@localhost 'bash -c k3d --version' 2>/dev/null; do sleep 5; done
 	@echo "VM provisioning completed. Deploying the cluster..."
-	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost 'bash -s' -- $(DEPLOY_ARGS) < tools/deploy-cluster.sh
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=yes -i $(SSH_KEY) lgtm@localhost 'bash -s' -- $(DEPLOY_ARGS) < tools/deploy-cluster.sh
 
 undeploy:	# Delete the Kubernetes cluster
 	ssh -p $(HOST_SSH_PORT) lgtm@localhost 'bash -c "k3d cluster delete lgtm-cluster"'
@@ -146,10 +149,10 @@ ifeq ($(BUILD_LOC), host)
 	docker push localhost:5001/ft-lgtm/backend:latest
 	docker push localhost:5001/ft-lgtm/frontend:latest
 else
-	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=yes -i $(SSH_KEY) lgtm@localhost \
 		'docker push localhost:5001/ft-lgtm/backend:latest && docker push localhost:5001/ft-lgtm/frontend:latest'
 endif
-	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=yes -i $(SSH_KEY) lgtm@localhost \
 		'kubectl rollout restart deployment/backend deployment/frontend -n app'
 
 build-imgs:	# Rebuild docker images
@@ -157,7 +160,7 @@ ifeq ($(BUILD_LOC), host)
 	docker build -t localhost:5001/ft-lgtm/backend:latest ./app/backend
 	docker build --build-arg PUBLIC_API_URL=http://localhost:3000/api/v1 -t localhost:5001/ft-lgtm/frontend:latest ./app/frontend
 else
-	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=no lgtm@localhost \
+	ssh -p $(HOST_SSH_PORT) -o StrictHostKeyChecking=yes -i $(SSH_KEY) lgtm@localhost \
 		'docker build -t localhost:5001/ft-lgtm/backend:latest /mnt/app/backend && docker build --build-arg PUBLIC_API_URL=$(DOMAIN_URL)/api/v1 -t localhost:5001/ft-lgtm/frontend:latest /mnt/app/frontend'
 endif
 
@@ -180,3 +183,7 @@ $(ISO_DIR) $(VM_IMGDIR):
 $(ISO_FILE): | $(ISO_DIR)
 	@echo "Downloading ISO image..."
 	@wget -O $@ $(ISO_URL)
+
+$(SSH_KEY):
+	ssh-keygen -t ed25519 -f $(SSH_KEY) -N $(SSH_KEY_PASSPHRASE) -C "lgtm@localhost" -q
+	chmod 600 $(SSH_KEY) -q
