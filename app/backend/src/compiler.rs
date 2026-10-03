@@ -1,9 +1,11 @@
 pub mod clang;
 mod p2adapter;
 pub mod rustc;
+pub mod tinygo;
 
 use clang::{CCompiler, CppCompiler};
 use rustc::RustCompiler;
+use tinygo::GoCompiler;
 
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -57,6 +59,7 @@ pub async fn get_compiled_code(lang: &str, source: &str) -> Result<CompileResult
         "rs" => RustCompiler::compile(source).await,
         "c" => CCompiler::compile(source).await,
         "cpp" => CppCompiler::compile(source).await,
+        "go" => GoCompiler::compile(source).await,
         _ => Err(format!("Unsupported language: {}", lang)),
     }
 }

@@ -18,14 +18,11 @@ impl Compiler for RustCompiler {
             .await
             .expect("Failed to write source code");
 
-        let mut args = vec![
-            "--edition".to_string(),
-            "2024".to_string(),
-            "--target".to_string(),
-            "wasm32-wasip2".to_string(),
-        ];
+        let is_reactor = !source_code.contains("fn main(");
 
-        if !source_code.contains("fn main()") {
+        let mut args = vec!["--target".to_string(), "wasm32-wasip2".to_string()];
+
+        if is_reactor {
             args.push("--crate-type".to_string());
             args.push("cdylib".to_string());
         }

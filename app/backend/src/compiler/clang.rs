@@ -6,12 +6,12 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::process::Command;
 use tokio::time::timeout;
-use tracing::info;
+use tracing::{info, instrument};
 
 pub struct CCompiler;
 
 impl Compiler for CCompiler {
-    /// Compiles C source code to WebAssembly component using `clang` + `rust-lld` + `wit-component`.
+    /// Compiles C source code to WebAssembly component using `clang` + `wit-component`.
     async fn compile(source_code: &str) -> Result<CompileResult, String> {
         run_clang_pipeline(source_code, false).await
     }
@@ -20,7 +20,7 @@ impl Compiler for CCompiler {
 pub struct CppCompiler;
 
 impl Compiler for CppCompiler {
-    /// Compiles C++ source code to WebAssembly component using `clang++` + `rust-lld` + `wit-component`.
+    /// Compiles C++ source code to WebAssembly component using `clang++` + `wit-component`.
     async fn compile(source_code: &str) -> Result<CompileResult, String> {
         run_clang_pipeline(source_code, true).await
     }
@@ -44,6 +44,7 @@ fn find_clang_binary(is_cpp: bool) -> String {
     bin_name.to_string()
 }
 
+#[instrument(skip(source_code))]
 async fn run_clang_pipeline(source_code: &str, is_cpp: bool) -> Result<CompileResult, String> {
     let workspace = TempDir::new().map_err(|e| format!("Failed to create temp dir: {e}"))?;
     let ext = if is_cpp { "cpp" } else { "c" };

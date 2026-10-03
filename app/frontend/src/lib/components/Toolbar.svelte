@@ -18,6 +18,7 @@
         <option value="rs" selected>Rust</option>
         <option value="c">C</option>
         <option value="cpp">C++</option>
+        <option value="go">Go</option>
         <option value="js" disabled>JavaScript</option>
     </select>
     <p>Theme: </p>
