@@ -7,10 +7,12 @@ WORKDIR /app
 
 COPY package.json ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install 
+    pnpm install
 
 ARG PUBLIC_API_URL
 ENV PUBLIC_API_URL=${PUBLIC_API_URL}
+ARG PUBLIC_IPFS_URL
+ENV PUBLIC_IPFS_URL=${PUBLIC_IPFS_URL}
 COPY . .
 RUN pnpm build
 
@@ -21,5 +23,7 @@ COPY --from=builder /app/build /usr/share/caddy
 
 ARG PUBLIC_API_URL
 ENV PUBLIC_API_URL=${PUBLIC_API_URL}
+ARG PUBLIC_IPFS_URL
+ENV PUBLIC_IPFS_URL=${PUBLIC_IPFS_URL}
 EXPOSE 80
 CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

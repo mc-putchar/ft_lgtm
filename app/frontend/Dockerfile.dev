@@ -6,6 +6,8 @@ RUN npm install
 COPY . .
 ARG PUBLIC_API_URL=http://localhost:3000/api/v1
 ENV PUBLIC_API_URL=${PUBLIC_API_URL}
+ARG PUBLIC_IPFS_URL
+ENV PUBLIC_IPFS_URL=${PUBLIC_IPFS_URL}
 
 EXPOSE 3000
 CMD ["npm", "run", "dev"]

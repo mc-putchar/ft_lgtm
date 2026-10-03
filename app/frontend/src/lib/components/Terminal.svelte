@@ -1,5 +1,5 @@
 <script>
-    let { isExecuting, response } = $props();
+    let { isExecuting, response, ipfs_url } = $props();
 </script>
 
 <div class="pane-header">Terminal</div>
@@ -54,8 +54,8 @@
             {#if response.ipfs_cid}
                 <div class="ipfs-link">
                     <span class="log-label">IPFS LINK</span>
-                    <a href="http://ipfs.lgtm.local:8080/ipfs/{response.ipfs_cid}" target="_blank">
-                        ipfs.lgtm.local:8080/ipfs/{response.ipfs_cid}
+                    <a href="{ipfs_url}{response.ipfs_cid}" target="_blank">
+                        {ipfs_url}{response.ipfs_cid}
                     </a>
                 </div>
             {/if}

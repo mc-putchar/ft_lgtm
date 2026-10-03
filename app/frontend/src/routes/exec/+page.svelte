@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { PUBLIC_API_URL } from '$env/static/public';
+    import { PUBLIC_API_URL, PUBLIC_IPFS_URL } from '$env/static/public';
     import type { ExecuteRequest } from '$lib/types/ExecuteRequest';
     import type { ExecuteResponse } from '$lib/types/ExecuteResponse';
 	import Editor from '$lib/components/Editor.svelte';
@@ -57,7 +57,7 @@
         </section>
 
         <section class="pane output-pane">
-            <Terminal {isExecuting} {response} />
+            <Terminal {isExecuting} {response} ipfs_url={PUBLIC_IPFS_URL} />
         </section>
     </div>
 </main>

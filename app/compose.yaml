@@ -1,7 +1,7 @@
 name: ft_lgtm
 
 networks:
-  ft_lgtm:
+  lgtm-net:
     driver: bridge
 
 services:
@@ -11,7 +11,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
-      - ft_lgtm
+      - lgtm-net
     ports:
       - "3000:3000"
     environment:
@@ -32,13 +32,15 @@ services:
       dockerfile: Dockerfile.dev
       args:
         PUBLIC_API_URL: http://localhost:3000/api/v1
+        PUBLIC_IPFS_URL: http://localhost:8080/ipfs/
     restart: unless-stopped
     networks:
-      - ft_lgtm
+      - lgtm-net
     ports:
       - "5173:5173"
     environment:
       - PUBLIC_API_URL=http://localhost:3000/api/v1
+      - PUBLIC_IPFS_URL=http://localhost:8080/ipfs/
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -47,22 +49,28 @@ services:
     image: grafana/otel-lgtm:latest
     restart: unless-stopped
     networks:
-      - ft_lgtm
+      - lgtm-net
     ports:
       - "3001:3000"
-      - "3100:3100"
-      - "3200:3200"
-      - "4040:4040"
-      - "4317:4317"
-      - "4318:4318"
-      - "9090:9090"
+    expose:
+      - "3100"
+      - "3200"
+      - "4040"
+      - "4317"
+      - "4318"
+      - "9090"
 
   ipfs:
     image: ipfs/kubo:latest
     restart: unless-stopped
     networks:
-      - ft_lgtm
+      - lgtm-net
     ports:
-      - "4001:4001"
-      - "5001:5001"
-      - "8080:8080"
+      - "4001:4001" # P2P TCP
+      - "4001:4001/udp" # QUIC
+      - "8080:8080" # Web UI
+    expose:
+      - "5001" # RPC API
+    volumes:
+      - ./ipfs-staging:/export
+      - ./ipfs-data:/data/ipfs
